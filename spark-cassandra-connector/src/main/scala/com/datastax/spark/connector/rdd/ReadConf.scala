@@ -6,7 +6,7 @@ import org.apache.spark.SparkConf
 
 /** Read settings for RDD
   *
-  * @param splitCount number of partitions to divide the data into; unset by default
+  * @param splitCount number of partitions to divide the data into; unsetIfNone by default
   * @param splitSizeInMB size of Cassandra data to be read in a single Spark task; 
   *                      determines the number of partitions, but ignored if `splitCount` is set
   * @param fetchSizeInRows number of CQL rows to fetch in a single round-trip to Cassandra

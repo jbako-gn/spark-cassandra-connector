@@ -1,7 +1,7 @@
 package com.datastax.spark.connector.writer
 
 import com.datastax.driver.core._
-import com.datastax.spark.connector.types.ColumnType
+import com.datastax.spark.connector.types.{Unset, ColumnType}
 import com.datastax.spark.connector.util.CodecRegistryUtil
 import org.apache.spark.Logging
 
@@ -13,7 +13,8 @@ import org.apache.spark.Logging
 private[connector] class BoundStatementBuilder[T](
     val rowWriter: RowWriter[T],
     val preparedStmt: PreparedStatement,
-    val prefixVals: Seq[Any] = Seq.empty) extends Logging {
+    val prefixVals: Seq[Any] = Seq.empty,
+    val protocolVersion: ProtocolVersion) extends Logging {
 
   private val columnNames = rowWriter.columnNames.toIndexedSeq
   private val columnTypes = columnNames.map(preparedStmt.getVariables.getType)
@@ -38,11 +39,18 @@ private[connector] class BoundStatementBuilder[T](
       val converter = converters(i)
       val columnName = columnNames(i)
       val columnValue = converter.convert(buffer(i))
-      boundStatement.set(columnName, columnValue, CodecRegistryUtil.codecFor(columnTypes(i), columnValue))
-      val serializedValue = boundStatement.getBytesUnsafe(i)
-
-      if (serializedValue != null)
-        bytesCount += serializedValue.remaining()
+      //C* 2.2 (PV4) and Greater Allows us to leave fields Unset
+      if (protocolVersion.toInt < ProtocolVersion.V4.toInt || columnValue != Unset) {
+        if (columnValue == Unset){
+          logWarning(s"""Unset Value set to Null because Current $protocolVersion <
+            ${ProtocolVersion.V4}, and does not support Unset values""")
+          boundStatement.setToNull(columnName)
+        } else {
+          boundStatement.set(columnName, columnValue, CodecRegistryUtil.codecFor(columnTypes(i), columnValue))
+        }
+        val serializedValue = boundStatement.getBytesUnsafe(i)
+        if (serializedValue != null) bytesCount += serializedValue.remaining()
+      }
 
     }
     boundStatement.bytesCount = bytesCount

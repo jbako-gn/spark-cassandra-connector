@@ -181,6 +181,50 @@ val company = Company("DataStax", address)
 sc.parallelize(Seq(company)).saveToCassandra("test", "companies")
 ```
 
+## Skipping Columns and Avoiding Tombstones on Writes (Connector Version 1.6+ and Cassandra 2.2+)
+Prior to Cassandra 2.2 there was no way via the native protocol to execute a prepared statement with
+unbound elements. This meant every executed statement via the Spark Cassandra Connector was required 
+to insert `nulls` into cassandra for any unfilled columns.
+
+The Spark Cassandra Connector now provides a method for avoiding creating a tombstone when 
+inserting from an empty column to Cassandra. This is done by with the 
+`com.datastax.spark.connector.types.CassandraOption` class. 
+
+    CassandraOption[A](option: Option[A], unsetIfNone: Boolean = true)
+
+This can be used when reading and writing from C*. When a column is loaded as a `CassandraOption` 
+any missing columns will be represented as `Unset` options. This means a table loaded via 
+`CassandraOption` will not delete elements if saved to another table if there were missing 
+elements in the table read from.
+ 
+    //Tab1 
+    //(1, None, 1)
+     
+    //Tab2
+    //(1, 5, None)
+    
+    sc.cassandraTable[(String, CassandraOption[String])]("ks", "tab1")
+      .saveToCassandra("ks", "tab2")
+     
+    //Tab2
+    //(1, 5, 1)
+    
+ 
+For more complicated use cases the `CassandraOption` can be set to delete as well on a per row 
+(and per column) basis. This is done by adjusting the second parameter `unsetIfNone`
+
+    //Tab1
+    //(1, 1, 1)
+    
+    sc.parallelize(Seq(
+      (1,
+      CassandraOption(None, unsetIfNone = false), //This None will be treated as a Delete (null)
+      CassandraOption(None, unsetIfNone = true))  //This None will be treated as Unset
+      .saveToCassandra("ks", "tab1")
+      
+    //Tab1
+    //(1, None, 1)
+    
 ## Specifying TTL and WRITETIME
 Spark Cassandra Connector saves the data without explicitly specifying TTL or WRITETIME. If a certain 
 values for them have to be used, there are a couple options provided by the API. 
